@@ -1,0 +1,7 @@
+requests
+tqdm
+pymupdf
+spacy
+transformers
+torch
+sentence-transformers
