@@ -5,3 +5,8 @@ spacy
 transformers
 torch
 sentence-transformers
+scikit-learn
+hdbscan
+streamlit
+bert-score
+datasets
