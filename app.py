@@ -1,6 +1,5 @@
 import streamlit as st
 from sklearn.metrics.pairwise import cosine_similarity
-import json
 
 from ingestion.arxiv_client import ArxivClient
 from ingestion.semantic_scholar_client import SemanticScholarClient
@@ -20,110 +19,147 @@ from config.settings import (
 st.set_page_config(page_title="Research Gap Finder", layout="wide")
 
 st.title("Research Gap Discovery System")
-st.markdown("Analyze research papers to find contradictions, limitations, and open questions.")
+st.caption("Analyze research papers to find contradictions, limitations, and open questions.")
 
-# --- Sidebar config ---
+# --- Sidebar ---
 with st.sidebar:
     st.header("Settings")
     query = st.text_input("Research topic:", "retrieval augmented generation")
-    max_papers = st.slider("Max papers from ArXiv:", min_value=3, max_value=100, value=10)
+    max_papers = st.slider("Papers to fetch:", min_value=3, max_value=100, value=10)
     run = st.button("Run Analysis", type="primary", use_container_width=True)
-    st.divider()
-    st.markdown("""
-    **Pipeline stages:**
-    1. Download papers
-    2. Enrich via Semantic Scholar
-    3. Extract claims (Mistral 7B)
-    4. Embed claims (SPECTER2)
-    5. Cluster claims (HDBSCAN)
-    6. Detect contradictions (NLI)
-    7. Retrieve limitations
-    8. Generate research gaps
-    """)
 
 if not run:
-    st.info("Enter a research topic and click **Run Analysis** to start.")
+    st.info("Enter a research topic in the sidebar and click **Run Analysis**.")
     st.stop()
 
+
 # ============================================================
-# PIPELINE — each stage updates the UI as it completes
+# STAGE 1 — Download papers and show them immediately
 # ============================================================
 
-# --- Stage 1: Paper Collection ---
-with st.status("Downloading papers from ArXiv...", expanded=True) as status:
+with st.spinner("Fetching papers from ArXiv..."):
     arxiv = ArxivClient()
     papers = arxiv.search_and_download(query, max_results=max_papers)
-    st.write(f"Downloaded **{len(papers)}** papers from ArXiv")
 
-    status.update(label="Enriching with Semantic Scholar...", state="running")
+with st.spinner("Enriching with Semantic Scholar..."):
     scholar = SemanticScholarClient()
     papers, extra_papers = scholar.enrich_and_expand(papers)
     if extra_papers:
-        st.write(f"Discovered **{len(extra_papers)}** additional papers via citation graph")
         papers.extend(extra_papers)
 
-    status.update(label=f"Collected {len(papers)} papers", state="complete")
+# --- Parse all papers upfront so we can show overviews ---
+parser = PDFParser()
+segmenter = SectionSegmenter()
+splitter = SentenceSplitter()
 
-# Show paper list
-with st.expander(f"Papers collected ({len(papers)})", expanded=False):
-    for i, p in enumerate(papers):
-        citation = f" — {p.get('citation_count', '?')} citations" if p.get('citation_count') else ""
-        st.write(f"{i+1}. **{p['title']}**{citation}")
+paper_data = []
+for paper in papers:
+    text = parser.extract_text(paper["pdf_path"])
+    sections = segmenter.segment(text)
+    paper_data.append({
+        "title": paper["title"],
+        "pdf_path": paper["pdf_path"],
+        "citation_count": paper.get("citation_count"),
+        "year": paper.get("year"),
+        "venue": paper.get("venue", ""),
+        "sections": sections,
+        "text": text,
+    })
 
-# --- Stage 2: Claim Extraction ---
+# ============================================================
+# SHOW PAPERS — user can browse while pipeline continues below
+# ============================================================
+
+st.header(f"Papers ({len(paper_data)})")
+
+for i, pd in enumerate(paper_data):
+    citations = f" | {pd['citation_count']} citations" if pd.get("citation_count") else ""
+    year = f" | {pd['year']}" if pd.get("year") else ""
+    venue = f" | {pd['venue']}" if pd.get("venue") else ""
+
+    with st.expander(f"**{i+1}. {pd['title']}**{year}{citations}{venue}"):
+        section_names = list(pd["sections"].keys())
+        st.caption(f"Sections found: {', '.join(section_names) if section_names else 'none detected'}")
+
+        # Show abstract or first section as preview
+        preview_section = None
+        for candidate in ["abstract", "introduction"]:
+            if candidate in pd["sections"]:
+                preview_section = candidate
+                break
+
+        if preview_section:
+            preview_text = pd["sections"][preview_section]
+            # Clean up: take first ~500 chars
+            preview = preview_text[:500].strip()
+            if len(preview_text) > 500:
+                preview += "..."
+            st.markdown(f"**{preview_section.title()}:**")
+            st.markdown(preview)
+        else:
+            # Fallback: show first 500 chars of raw text
+            preview = pd["text"][:500].strip()
+            if len(pd["text"]) > 500:
+                preview += "..."
+            st.markdown(preview)
+
+st.divider()
+
+# ============================================================
+# STAGE 2 — Claim Extraction (the slow part)
+# ============================================================
+
+st.header("Pipeline Progress")
+
 with st.status("Extracting claims from papers...", expanded=True) as status:
-    parser = PDFParser()
-    segmenter = SectionSegmenter()
-    splitter = SentenceSplitter()
     extractor = ClaimExtractor()
-
     all_claims = []
     progress = st.progress(0, text="Starting claim extraction...")
 
-    for idx, paper in enumerate(papers):
+    for idx, pd in enumerate(paper_data):
         progress.progress(
-            (idx) / len(papers),
-            text=f"Paper {idx+1}/{len(papers)}: {paper['title'][:50]}..."
+            idx / len(paper_data),
+            text=f"Extracting from paper {idx+1}/{len(paper_data)}: {pd['title'][:50]}..."
         )
 
-        text = parser.extract_text(paper["pdf_path"])
-        sections = segmenter.segment(text)
-
-        for section_name, content in sections.items():
+        for section_name, content in pd["sections"].items():
             sentences = splitter.split(content)
             for s in sentences:
                 if len(s) < MIN_SENTENCE_LENGTH:
                     continue
                 claims = extractor.extract_from_sentence(
-                    s, paper_title=paper["title"], section=section_name,
+                    s, paper_title=pd["title"], section=section_name,
                 )
                 all_claims.extend(claims)
 
-    progress.progress(1.0, text="Claim extraction complete")
-    st.write(f"Extracted **{len(all_claims)}** claims across {len(papers)} papers")
-    status.update(label=f"Extracted {len(all_claims)} claims", state="complete")
+    progress.progress(1.0, text=f"Extracted {len(all_claims)} claims")
+    status.update(label=f"Extracted {len(all_claims)} claims from {len(paper_data)} papers", state="complete")
 
 if not all_claims:
-    st.error("No claims extracted. Try a different topic or more papers.")
+    st.error("No claims extracted. Try a different topic or increase the paper count.")
     st.stop()
 
-# --- Stage 3: Embedding ---
-with st.status("Embedding claims with SPECTER2...", expanded=False) as status:
+# ============================================================
+# STAGE 3 — Embedding + Clustering (fast)
+# ============================================================
+
+with st.status("Embedding and clustering claims...", expanded=False) as status:
     embedder = SpecterEmbedder()
     embeddings = embedder.encode(all_claims)
-    status.update(label=f"Embedded {len(all_claims)} claims (768-d vectors)", state="complete")
 
-# --- Stage 4: Clustering ---
-with st.status("Clustering claims with HDBSCAN...", expanded=False) as status:
     clusterer = ClaimClusterer()
     labels = clusterer.cluster(embeddings)
     clusters = clusterer.group_clusters(all_claims, labels)
     if not clusters:
         clusters = {0: all_claims}
-    status.update(label=f"Formed {len(clusters)} clusters", state="complete")
 
-# --- Stage 5: Contradiction Detection ---
-with st.status("Detecting contradictions via NLI...", expanded=True) as status:
+    status.update(label=f"Formed {len(clusters)} clusters from {len(all_claims)} claims", state="complete")
+
+# ============================================================
+# STAGE 4 — Contradiction Detection
+# ============================================================
+
+with st.status("Detecting contradictions via NLI...", expanded=False) as status:
     nli = NLIEngine()
     all_contradictions = []
 
@@ -132,7 +168,6 @@ with st.status("Detecting contradictions via NLI...", expanded=True) as status:
         if len(idxs) < 2:
             continue
         emb = embeddings[idxs]
-
         for i in range(len(cl)):
             for j in range(i + 1, len(cl)):
                 sim = cosine_similarity([emb[i]], [emb[j]])[0][0]
@@ -142,51 +177,49 @@ with st.status("Detecting contradictions via NLI...", expanded=True) as status:
                 if conf > NLI_CONFIDENCE_THRESHOLD and rel == "contradiction":
                     all_contradictions.append((cl[i], cl[j], conf))
 
-    if all_contradictions:
-        st.write(f"Found **{len(all_contradictions)}** contradictions")
-    else:
-        st.write("No contradictions detected at current thresholds")
-    status.update(label=f"NLI complete — {len(all_contradictions)} contradictions", state="complete")
+    status.update(label=f"Found {len(all_contradictions)} contradictions", state="complete")
 
-# --- Stage 6: Limitation Retrieval ---
+# ============================================================
+# STAGE 5 — Limitation Retrieval
+# ============================================================
+
 with st.status("Retrieving limitation-adjacent claims...", expanded=False) as status:
     retriever = LimitationRetriever(embedder, clusterer)
     limitation_claims, limitation_clusters = retriever.retrieve(all_claims, embeddings)
     status.update(
         label=f"Found {len(limitation_claims)} limitation claims in {len(limitation_clusters)} clusters",
-        state="complete"
+        state="complete",
     )
 
-# --- Stage 7: Gap Generation ---
-with st.status("Generating research gaps with Mistral...", expanded=True) as status:
+# ============================================================
+# STAGE 6 — Gap Generation
+# ============================================================
+
+with st.status("Generating research gaps...", expanded=True) as status:
     gap_generator = GapGenerator()
     gaps = []
 
-    # Count total gap generation tasks
     cluster_tasks = [cl for cl in clusters.values() if len(cl) >= 2]
     limitation_tasks = [cl for cl in limitation_clusters.values() if len(cl) >= 2]
     total_tasks = len(cluster_tasks) + (1 if all_contradictions else 0) + len(limitation_tasks)
-
-    progress = st.progress(0, text="Generating gaps...")
     done = 0
 
-    # Gaps from topic clusters
+    progress = st.progress(0, text="Generating research gaps...")
+
     for cid, cl in clusters.items():
         if len(cl) < 2:
             continue
         gap = gap_generator.generate_gap(cl)
         gaps.append(gap)
         done += 1
-        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}...")
+        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}")
 
-    # Gaps from contradictions
     if all_contradictions:
         gap = gap_generator.generate_gap([], contradictions=all_contradictions)
         gaps.append(gap)
         done += 1
-        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}...")
+        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}")
 
-    # Gaps from limitations
     for cid, cl in limitation_clusters.items():
         if len(cl) < 2:
             continue
@@ -194,10 +227,11 @@ with st.status("Generating research gaps with Mistral...", expanded=True) as sta
         gap["type"] = "limitation"
         gaps.append(gap)
         done += 1
-        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}...")
+        progress.progress(done / max(total_tasks, 1), text=f"Gap {done}/{total_tasks}")
 
-    progress.progress(1.0, text="Gap generation complete")
+    progress.progress(1.0, text="Done")
     status.update(label=f"Generated {len(gaps)} research gaps", state="complete")
+
 
 # ============================================================
 # RESULTS
@@ -206,17 +240,17 @@ with st.status("Generating research gaps with Mistral...", expanded=True) as sta
 st.divider()
 st.header("Results")
 
-# --- Summary metrics ---
+# --- Summary ---
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Papers", len(papers))
 c2.metric("Claims", len(all_claims))
 c3.metric("Clusters", len(clusters))
 c4.metric("Contradictions", len(all_contradictions))
-c5.metric("Gaps Found", len(gaps))
+c5.metric("Research Gaps", len(gaps))
 
 st.divider()
 
-# --- Tabs for different gap types ---
+# --- Categorize gaps ---
 contradiction_gaps = [g for g in gaps if g.get("type") == "contradiction"]
 limitation_gaps = [g for g in gaps if g.get("type") == "limitation"]
 open_question_gaps = [g for g in gaps if g.get("type", "open_question") == "open_question"]
@@ -231,19 +265,18 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 def render_gap(gap, index):
     gap_type = gap.get("type", "open_question")
-    type_colors = {
-        "contradiction": "red",
-        "limitation": "orange",
-        "open_question": "blue",
-    }
     type_labels = {
         "contradiction": "Contradiction",
         "limitation": "Limitation",
         "open_question": "Open Question",
     }
-
-    color = type_colors.get(gap_type, "blue")
+    type_colors = {
+        "contradiction": "red",
+        "limitation": "orange",
+        "open_question": "blue",
+    }
     label = type_labels.get(gap_type, "Gap")
+    color = type_colors.get(gap_type, "blue")
 
     with st.container(border=True):
         st.markdown(f"**:{color}[{label}]** — Gap #{index + 1}")
