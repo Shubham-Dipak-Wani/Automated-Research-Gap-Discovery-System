@@ -10,3 +10,4 @@ hdbscan
 streamlit
 bert-score
 datasets
+peft

@@ -73,7 +73,7 @@ class GapGenerator:
             "prompt": prompt,
             "stream": False,
             "options": {"temperature": 0.3, "num_predict": 300}
-        })
+        }, proxies={"http": None, "https": None})
 
         if response.status_code != 200:
             return "Error: Could not generate gap."

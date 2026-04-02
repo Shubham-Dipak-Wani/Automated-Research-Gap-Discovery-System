@@ -15,7 +15,7 @@ class ClaimExtractor:
             "prompt": prompt,
             "stream": False,
             "options": {"temperature": 0.1, "num_predict": 256}
-        })
+        }, proxies={"http": None, "https": None})
 
         if response.status_code != 200:
             print(f"Ollama error: {response.status_code}")

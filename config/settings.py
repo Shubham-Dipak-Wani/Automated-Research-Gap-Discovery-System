@@ -8,7 +8,7 @@ PAPER_SAVE_DIR = "data/raw_papers"
 # --- Models ---
 OLLAMA_MODEL = "mistral"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-SPECTER_MODEL = "allenai/specter2"
+SPECTER_MODEL = "allenai/specter2_base"
 NLI_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v1"
 SPACY_MODEL = "en_core_web_sm"
 
