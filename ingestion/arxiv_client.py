@@ -1,6 +1,7 @@
 import requests
 import xml.etree.ElementTree as ET
 import os
+import time
 from config.settings import PAPER_SAVE_DIR
 
 
@@ -18,10 +19,19 @@ class ArxivClient:
             "sortBy": "relevance",
         }
 
-        response = requests.get(self.BASE_URL, params=params, timeout=30)
-
-        if response.status_code != 200:
-            raise Exception(f"Failed to fetch data from arXiv (status {response.status_code})")
+        # Retry with backoff on rate limiting (429)
+        for attempt in range(5):
+            response = requests.get(self.BASE_URL, params=params, timeout=30)
+            if response.status_code == 200:
+                break
+            if response.status_code == 429:
+                wait = 3 * (attempt + 1)
+                print(f"ArXiv rate limited, retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise Exception(f"Failed to fetch data from arXiv (status {response.status_code})")
+        else:
+            raise Exception("ArXiv rate limit exceeded after 5 retries")
 
         return self._parse_and_download(response.text, save_dir)
 
