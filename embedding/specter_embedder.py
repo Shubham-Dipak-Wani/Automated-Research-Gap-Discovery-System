@@ -1,10 +1,12 @@
 from sentence_transformers import SentenceTransformer
+from config.settings import SPECTER_MODEL
 
 
 class SpecterEmbedder:
     def __init__(self):
-        print("Loading SPECTER...")
-        self.model = SentenceTransformer("allenai/specter")
+        print(f"Loading {SPECTER_MODEL}...")
+        self.model = SentenceTransformer(SPECTER_MODEL)
 
     def encode(self, claims):
-        return self.model.encode(claims, batch_size=8, show_progress_bar=True)
+        texts = [c["text"] if isinstance(c, dict) else c for c in claims]
+        return self.model.encode(texts, batch_size=8, show_progress_bar=True)
