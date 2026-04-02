@@ -1,60 +1,66 @@
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
+import requests
+from config.settings import OLLAMA_MODEL, OLLAMA_URL, MIN_CLAIM_LENGTH
+from claims.prompts import CLAIM_EXTRACTION_PROMPT
 
 
 class ClaimExtractor:
     def __init__(self):
-        print("Using FLAN-T5-SMALL")
+        print(f"Using Ollama ({OLLAMA_MODEL}) for claim extraction")
 
-        model_name = "google/flan-t5-small"
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    def extract_from_sentence(self, sentence, paper_title="", section=""):
+        prompt = CLAIM_EXTRACTION_PROMPT.format(sentence=sentence)
 
-    def extract_from_sentence(self, sentence):
-        prompt = f"""
-Extract atomic scientific claims from the sentence.
+        response = requests.post(OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.1, "num_predict": 256}
+        })
 
-Sentence: "{sentence}"
+        if response.status_code != 200:
+            print(f"Ollama error: {response.status_code}")
+            return []
 
-Claims:
-"""
+        text = response.json().get("response", "")
+        claims = self._parse_output(text)
 
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True)
-
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, max_new_tokens=100)
-
-        text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        return self._parse_output(text)
+        # Attach source metadata for citation tracing
+        return [
+            {
+                "text": c,
+                "paper_title": paper_title,
+                "section": section,
+                "source_sentence": sentence,
+            }
+            for c in claims
+        ]
 
     def _parse_output(self, text):
-        lines = text.split("\n")
+        if "NONE" in text.strip().upper():
+            return []
+
+        lines = text.strip().split("\n")
         claims = []
 
         for line in lines:
-            line = line.strip()
+            line = line.strip().lstrip("- ").lstrip("* ").strip()
 
             if not line:
                 continue
 
             low = line.lower()
 
-            # remove metadata / garbage
+            # Skip metadata / garbage
             if any(x in low for x in [
                 "acm", "workshop", "arxiv", "doi",
                 "copyright", "permission", "manuscript",
-                "author", "email", "@", "http", "www"
+                "author", "email", "@", "http", "www",
+                "sentence:", "claims:", "none"
             ]):
                 continue
 
-            if len(line) < 30:
+            if len(line) < MIN_CLAIM_LENGTH:
                 continue
-
-            if '"' in line or "p." in line:
-                continue
-
-            line = line.lstrip("- ").strip()
 
             if not line.endswith("."):
                 line += "."
