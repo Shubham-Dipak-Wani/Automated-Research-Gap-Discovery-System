@@ -1,0 +1,86 @@
+RAW NOTES — PROJECT-LEVEL CONTEXT
+===================================
+
+What the Pre-Proposal Promised vs What Was Built:
+- Proposal: 50-100 papers -> Built: configurable up to 100 (default 50)
+- Proposal: Llama 3 or Mistral -> Built: Mistral 7B via Ollama
+- Proposal: SPECTER2 -> Built: allenai/specter2_base (768-d)
+- Proposal: Few-shot SciFact prompts -> Built: 4 SciFact examples in prompt
+- Proposal: Semantic Scholar metadata + citation graph -> Built: full client
+- Proposal: Limitation retrieval via seed queries -> Built: 8 seed queries + re-clustering
+- Proposal: NLI via DeBERTa-v3 -> Built: with dynamic label order from config
+- Proposal: SciFact evaluation (P/R/F1 + BERTScore) -> Built: evaluator + metrics modules
+- Proposal: Citation pointers in gap report -> Built: every gap has source_papers + supporting_claims
+- Proposal: Human eval (Likert 1-5, novelty/groundedness/actionability) -> Designed, not yet executed
+- Proposal: Baseline comparison (naive LLM vs pipeline) -> Designed, not yet executed
+
+Architecture Decisions and Why:
+- Ollama over HuggingFace API: runs locally, no API key, no cost, reproducible
+- SPECTER2 over general embeddings (e.g., OpenAI): domain-specific for science, trained on citations
+- HDBSCAN over K-Means: no need to pre-specify k, handles noise, density-based
+- DeBERTa-v3 over GPT for NLI: specialized cross-encoder, faster, deterministic
+- Cosine pre-filter before NLI: reduces O(n^2) pairs to manageable subset
+- Claim metadata threading: enables citation tracing without post-hoc matching
+- Shared run_pipeline() function: CLI and web UI run identical code, no divergence
+
+What Doesn't Work Yet / Known Gaps:
+- Contradiction detection found 0 contradictions in test run (3 papers may be too few, or cosine window too narrow)
+- Human evaluation not yet conducted
+- Baseline comparison not yet run
+- No validation of PDF download integrity (corrupt PDFs crash the pipeline)
+- No test suite (tests/ directory has empty stubs)
+- Evaluation module not yet run on full SciFact (requires Ollama running for claim extraction)
+- Gap generation produces 200+ gaps for 3 papers — needs ranking/filtering for usefulness
+
+Pipeline Timing (approximate, MacBook M-series, 3 papers):
+- Paper download: ~5 seconds (cached after first run)
+- Semantic Scholar enrichment: ~10 seconds
+- PDF parsing + segmentation: ~2 seconds
+- Claim extraction (442 claims via Ollama): ~5-8 minutes (bottleneck — one LLM call per sentence)
+- SPECTER2 embedding (442 claims): ~4 seconds
+- HDBSCAN clustering: <1 second
+- NLI contradiction detection: ~30 seconds (depends on cluster sizes)
+- Limitation retrieval: ~1 second
+- Gap generation (204 gaps via Ollama): ~15-20 minutes (bottleneck — one LLM call per cluster)
+- Total: ~25-30 minutes for 3 papers
+
+Scaling Estimates:
+- 10 papers: ~1500 claims, ~300 clusters, ~1.5 hours
+- 50 papers: ~7000 claims, ~1000+ clusters, ~6-8 hours
+- Main bottlenecks: Ollama inference (claim extraction + gap generation)
+- Possible speedup: batch Ollama calls, reduce gap generation to top-k clusters only
+
+Evaluation Metrics Available:
+- Claim extraction: Precision, Recall, F1 (via BERTScore semantic matching against SciFact)
+- NLI: F1 macro, F1 contradiction, Precision contradiction, Recall contradiction
+- Gap quality: Likert 1-5 on novelty, groundedness, actionability (manual)
+- Baseline: side-by-side comparison of pipeline gaps vs naive "find research gaps" prompt
+
+Key Dependencies and Versions:
+- Python 3.14
+- torch (PyTorch)
+- transformers (HuggingFace)
+- sentence-transformers
+- spacy + en_core_web_sm
+- hdbscan
+- pymupdf (fitz)
+- scikit-learn
+- streamlit
+- bert-score
+- datasets (HuggingFace)
+- peft (for SPECTER2)
+- ollama (Mistral 7B, ~4.4 GB)
+
+Datasets:
+- ArXiv: live API, papers downloaded to data/raw_papers/
+- SciFact: 1.4K expert-written claims, loaded via HuggingFace datasets
+- Semantic Scholar: public API, no key needed for <100 req/sec
+
+Proposal References:
+[1] Wadden et al. (2020) — SciFact, claim verification as NLP task
+[2] Wadden et al. (2022) — SciFact-Open, specificity mismatch problem
+[3] Baek et al. (2024) — ResearchAgent, single-paper idea generation
+[4] Liu & Shah (2023) — ReviewerGPT, LLMs fail at holistic review
+[5] FLAWS (2025) — fine-grained error detection benchmark
+[6] Singh et al. (2023) — SPECTER2, SciRepEval
+[7] Jiang et al. (2023) — Mistral 7B

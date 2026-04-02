@@ -1,0 +1,94 @@
+RAW NOTES — HIRAK DESAI
+========================
+
+Pipeline Run Stats (3 papers, "retrieval augmented generation"):
+- Papers downloaded from ArXiv: 3
+- Additional papers discovered via Semantic Scholar citation graph: varies (0-5)
+- Total claims extracted: 442
+- Clusters formed (HDBSCAN): 102
+- Contradictions detected (NLI, conf > 0.7): 0
+- Research gaps generated: 204
+- Pipeline stages: 8 (download -> enrich -> extract -> embed -> cluster -> NLI -> limitations -> gaps)
+
+Models and Infrastructure:
+- Claim extraction: Mistral 7B via Ollama (local, no GPU, runs on Apple Silicon via Metal)
+- Embeddings: SPECTER2 (allenai/specter2_base), 768-dimensional vectors
+- Clustering: HDBSCAN (min_cluster_size=2, min_samples=1, epsilon=0.8)
+- NLI: DeBERTa-v3-base-zeroshot-v1, label order read from model config at runtime
+- Gap generation: Mistral 7B via Ollama (same instance as claim extraction)
+- Sentence tokenization: spaCy en_core_web_sm
+- PDF parsing: PyMuPDF (fitz)
+
+Bugs Found and Fixed During Development:
+- NLI label order was hardcoded as [contradiction, neutral, entailment] — if model uses different order, ALL predictions silently wrong. Fixed: now reads from model.config.id2label
+- PDF parser collapsed ALL whitespace to single space, destroying paragraph breaks. Fixed: preserves \n\n
+- Section segmenter matched keywords anywhere in body text (e.g., "introduction" mid-sentence). Fixed: anchored to line starts
+- claims/prompts.py had a better prompt but was NEVER imported — claim_extractor.py used worse inline prompt. Fixed: wired it in
+- app.py skipped NLI entirely (only main.py ran it). Fixed: both now call same run_pipeline()
+- SPECTER2 model name "allenai/specter2" requires PEFT adapter, fails to load. Fixed: use "allenai/specter2_base"
+- Ollama calls routed through system proxy, causing connection errors. Fixed: proxies={"http": None}
+- ArXiv returns 429 on repeated requests. Fixed: retry with backoff (3s, 6s, 9s, 12s, 15s)
+
+Thresholds (all in config/settings.py):
+- ARXIV_MAX_RESULTS = 50
+- MIN_SENTENCE_LENGTH = 40 chars
+- MIN_CLAIM_LENGTH = 30 chars
+- COSINE_SIM_MIN = 0.7 (for NLI pair selection)
+- COSINE_SIM_MAX = 0.9
+- NLI_CONFIDENCE_THRESHOLD = 0.7
+- LIMITATION_SIMILARITY_THRESHOLD = 0.5
+- MIN_CLAIM_LENGTH_FOR_GAP = 50 chars
+- MAX_CLAIMS_PER_GAP = 5
+
+Limitation Seed Queries:
+- "unresolved problem"
+- "our approach does not handle"
+- "limitation of this work"
+- "future work should address"
+- "remains challenging"
+- "open question in the field"
+- "current methods fail to"
+- "has not been explored"
+
+Files Implemented (16 files changed/created):
+- config/settings.py — all thresholds and model names
+- ingestion/arxiv_client.py — ArXiv API with retry
+- ingestion/semantic_scholar_client.py — metadata + citation graph
+- parsing/pdf_parser.py — fixed whitespace
+- parsing/section_segmenter.py — anchored regex
+- claims/claim_extractor.py — Ollama + few-shot + metadata
+- claims/prompts.py — SciFact few-shot examples
+- claims/limitation_retriever.py — seed query similarity
+- embedding/specter_embedder.py — SPECTER2
+- clustering/hdbscan_cluster.py — config-driven
+- nli/nli_engine.py — dynamic label order
+- gap_generation/generator.py — Ollama + citations
+- gap_generation/prompts.py — cluster + contradiction prompts
+- evaluation/evaluator.py — SciFact runner
+- evaluation/metrics.py — F1, BERTScore
+- main.py — unified pipeline with run_pipeline()
+- app.py — Streamlit UI with live stage tracker
+
+Git Commits (22 on hirak-updates branch):
+1. Add design spec for aligning pipeline with pre-proposal
+2. Fix PDF parser whitespace destruction
+3. Fix section segmenter to anchor patterns to line starts
+4. Add centralized config and new dependencies
+5. Fix NLI label order by reading from model config
+6. Upgrade embeddings from SPECTER to SPECTER2
+7. Rewrite claim extraction for Mistral via Ollama
+8. Rewrite gap generation for Mistral via Ollama with citations
+9. Implement Semantic Scholar client for metadata and citation graph
+10. Implement limitation retrieval via seed query similarity
+11. Update clustering to use centralized config
+12. Update ArXiv client to use config and add timeouts
+13. Refactor main.py to full pipeline with all stages
+14. Refactor app.py to use shared pipeline with full features
+15. Implement SciFact evaluation module
+16. Add missing __init__.py files for package imports
+17. Fix SPECTER2 model name and Ollama proxy issue
+18. Update README with complete setup and usage instructions
+19. Redesign Streamlit UI with live pipeline progress
+20. Show paper overviews while pipeline runs
+21. Add live pipeline stage tracker in sidebar
+22. Add retry with backoff for ArXiv rate limiting
