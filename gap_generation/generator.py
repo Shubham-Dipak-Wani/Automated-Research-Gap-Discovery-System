@@ -1,67 +1,87 @@
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
+import requests
+from config.settings import (
+    OLLAMA_MODEL, OLLAMA_URL,
+    MIN_CLAIM_LENGTH_FOR_GAP, MAX_CLAIMS_PER_GAP
+)
+from gap_generation.prompts import GAP_GENERATION_PROMPT, CONTRADICTION_GAP_PROMPT
 
 
 class GapGenerator:
     def __init__(self):
-        print("Loading Gap Model...")
-        model_name = "google/flan-t5-base"
+        print(f"Using Ollama ({OLLAMA_MODEL}) for gap generation")
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    def generate_gap(self, cluster_claims, contradictions=None):
+        if contradictions:
+            return self._generate_contradiction_gap(contradictions)
+        return self._generate_cluster_gap(cluster_claims)
 
-    def generate_gap(self, cluster_claims):
-        clean_claims = [c for c in cluster_claims if len(c) > 50][:5]
+    def _generate_cluster_gap(self, cluster_claims):
+        clean = [c for c in cluster_claims if len(c["text"]) > MIN_CLAIM_LENGTH_FOR_GAP]
+        clean = clean[:MAX_CLAIMS_PER_GAP]
 
-        if not clean_claims:
-            return "Research Gap: Insufficient data."
+        if not clean:
+            return {
+                "gap": "Insufficient claim data for gap generation.",
+                "supporting_claims": [],
+                "source_papers": [],
+                "type": "open_question",
+            }
 
-        text = "\n".join(clean_claims)
+        claims_text = "\n".join(
+            f'- "{c["text"]}" (from: {c["paper_title"]}, section: {c["section"]})'
+            for c in clean
+        )
 
-        prompt = f"""
-Find ONE missing research problem from these claims.
+        prompt = GAP_GENERATION_PROMPT.format(claims_text=claims_text)
+        gap_text = self._call_ollama(prompt)
 
-Claims:
-{text}
+        source_papers = list({c["paper_title"] for c in clean})
 
-Research Gap:
-"""
+        return {
+            "gap": gap_text,
+            "supporting_claims": [c["text"] for c in clean],
+            "source_papers": source_papers,
+            "type": "open_question",
+        }
 
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True)
-
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=60
+    def _generate_contradiction_gap(self, contradictions):
+        lines = []
+        all_claims = []
+        for c1, c2, conf in contradictions:
+            lines.append(
+                f'- "{c1["text"]}" (from: {c1["paper_title"]})\n'
+                f'  vs. "{c2["text"]}" (from: {c2["paper_title"]})\n'
+                f'  [confidence: {conf:.2f}]'
             )
+            all_claims.extend([c1, c2])
 
-        raw_output = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        prompt = CONTRADICTION_GAP_PROMPT.format(contradictions_text="\n".join(lines))
+        gap_text = self._call_ollama(prompt)
 
-        return self.post_process(raw_output, clean_claims)
+        source_papers = list({c["paper_title"] for c in all_claims})
 
-    def post_process(self, text, claims):
-        text = text.strip()
+        return {
+            "gap": gap_text,
+            "supporting_claims": [c["text"] for c in all_claims],
+            "source_papers": source_papers,
+            "type": "contradiction",
+        }
 
-    # ❌ if output is too short OR looks like a claim → fallback
-        if len(text) < 40 or not text.lower().startswith("research gap"):
-            return self.rule_based_gap(claims)
+    def _call_ollama(self, prompt):
+        response = requests.post(OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 300}
+        })
 
-        return text
+        if response.status_code != 200:
+            return "Error: Could not generate gap."
 
-    def rule_based_gap(self, claims):
-        joined = " ".join(claims).lower()
+        text = response.json().get("response", "").strip()
 
-    # 🔥 retrieval domain
-        if "retrieval" in joined:
-            return "Research Gap: Current retrieval-augmented generation methods lack evaluation on long-context reasoning and cross-domain generalization."
+        # Clean up: remove "Research Gap:" prefix if present
+        if text.lower().startswith("research gap:"):
+            text = text[len("research gap:"):].strip()
 
-    # 🔥 cognition + LLM domain
-        if "cognition" in joined or "llm" in joined:
-            return "Research Gap: Existing LLM-based cognitive systems lack real-time adaptive reasoning and fail to effectively reduce cognitive overload in dynamic environments."
-
-    # 🔥 misinformation / fact-checking
-        if "misinformation" in joined or "fact-check" in joined:
-            return "Research Gap: Current fact-checking systems lack reliable real-time validation and struggle with scalability across diverse misinformation scenarios."
-
-    # 🔥 fallback
-        return "Research Gap: Further research is needed to address limitations in current approaches."
+        return f"Research Gap: {text}" if text else "Research Gap: Unable to synthesize gap from provided claims."
