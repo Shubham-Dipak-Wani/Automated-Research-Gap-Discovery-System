@@ -22,13 +22,45 @@ st.title("Research Gap Discovery System")
 st.caption("Analyze research papers to find contradictions, limitations, and open questions.")
 
 # --- Sidebar ---
+STAGES = [
+    "Download papers",
+    "Enrich via Semantic Scholar",
+    "Extract claims (Mistral 7B)",
+    "Embed claims (SPECTER2)",
+    "Cluster claims (HDBSCAN)",
+    "Detect contradictions (NLI)",
+    "Retrieve limitations",
+    "Generate research gaps",
+]
+
 with st.sidebar:
     st.header("Settings")
     query = st.text_input("Research topic:", "retrieval augmented generation")
     max_papers = st.slider("Papers to fetch:", min_value=3, max_value=100, value=10)
     run = st.button("Run Analysis", type="primary", use_container_width=True)
+    st.divider()
+    stage_placeholder = st.empty()
+
+def render_stages(current_stage):
+    """Render pipeline stages in sidebar with live checkmarks."""
+    lines = ["**Pipeline stages:**\n"]
+    for i, name in enumerate(STAGES):
+        if i < current_stage:
+            lines.append(f"~~{i+1}. {name}~~  :white_check_mark:")
+        elif i == current_stage and current_stage < len(STAGES):
+            lines.append(f"**{i+1}. {name}** :hourglass_flowing_sand:")
+        else:
+            lines.append(f"{i+1}. {name}")
+    if current_stage >= len(STAGES):
+        lines.append("\n:tada: **Pipeline complete!**")
+    stage_placeholder.markdown("\n\n".join(lines))
 
 if not run:
+    # Show stages without any progress
+    lines = ["**Pipeline stages:**\n"]
+    for i, name in enumerate(STAGES):
+        lines.append(f"{i+1}. {name}")
+    stage_placeholder.markdown("\n\n".join(lines))
     st.info("Enter a research topic in the sidebar and click **Run Analysis**.")
     st.stop()
 
@@ -37,10 +69,12 @@ if not run:
 # STAGE 1 — Download papers and show them immediately
 # ============================================================
 
+render_stages(0)
 with st.spinner("Fetching papers from ArXiv..."):
     arxiv = ArxivClient()
     papers = arxiv.search_and_download(query, max_results=max_papers)
 
+render_stages(1)
 with st.spinner("Enriching with Semantic Scholar..."):
     scholar = SemanticScholarClient()
     papers, extra_papers = scholar.enrich_and_expand(papers)
@@ -111,6 +145,7 @@ st.divider()
 
 st.header("Pipeline Progress")
 
+render_stages(2)
 with st.status("Extracting claims from papers...", expanded=True) as status:
     extractor = ClaimExtractor()
     all_claims = []
@@ -143,22 +178,26 @@ if not all_claims:
 # STAGE 3 — Embedding + Clustering (fast)
 # ============================================================
 
-with st.status("Embedding and clustering claims...", expanded=False) as status:
+render_stages(3)
+with st.status("Embedding claims with SPECTER2...", expanded=False) as status:
     embedder = SpecterEmbedder()
     embeddings = embedder.encode(all_claims)
+    status.update(label=f"Embedded {len(all_claims)} claims", state="complete")
 
+render_stages(4)
+with st.status("Clustering claims with HDBSCAN...", expanded=False) as status:
     clusterer = ClaimClusterer()
     labels = clusterer.cluster(embeddings)
     clusters = clusterer.group_clusters(all_claims, labels)
     if not clusters:
         clusters = {0: all_claims}
-
     status.update(label=f"Formed {len(clusters)} clusters from {len(all_claims)} claims", state="complete")
 
 # ============================================================
 # STAGE 4 — Contradiction Detection
 # ============================================================
 
+render_stages(5)
 with st.status("Detecting contradictions via NLI...", expanded=False) as status:
     nli = NLIEngine()
     all_contradictions = []
@@ -183,6 +222,7 @@ with st.status("Detecting contradictions via NLI...", expanded=False) as status:
 # STAGE 5 — Limitation Retrieval
 # ============================================================
 
+render_stages(6)
 with st.status("Retrieving limitation-adjacent claims...", expanded=False) as status:
     retriever = LimitationRetriever(embedder, clusterer)
     limitation_claims, limitation_clusters = retriever.retrieve(all_claims, embeddings)
@@ -195,6 +235,7 @@ with st.status("Retrieving limitation-adjacent claims...", expanded=False) as st
 # STAGE 6 — Gap Generation
 # ============================================================
 
+render_stages(7)
 with st.status("Generating research gaps...", expanded=True) as status:
     gap_generator = GapGenerator()
     gaps = []
@@ -232,6 +273,7 @@ with st.status("Generating research gaps...", expanded=True) as status:
     progress.progress(1.0, text="Done")
     status.update(label=f"Generated {len(gaps)} research gaps", state="complete")
 
+render_stages(8)  # All done
 
 # ============================================================
 # RESULTS
