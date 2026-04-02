@@ -1,83 +1,53 @@
 import streamlit as st
-
-from ingestion.arxiv_client import ArxivClient
-from parsing.pdf_parser import PDFParser, SentenceSplitter
-from parsing.section_segmenter import SectionSegmenter
-from claims.claim_extractor import ClaimExtractor
-from embedding.specter_embedder import SpecterEmbedder
-from clustering.hdbscan_cluster import ClaimClusterer
-from gap_generation.generator import GapGenerator
-
+from main import run_pipeline
+from config.settings import ARXIV_MAX_RESULTS
 
 st.set_page_config(page_title="Research Gap Finder", layout="wide")
 
-st.title("🧠 Automated Research Gap Discovery System")
+st.title("Research Gap Discovery System")
+st.markdown("Analyze research papers to find contradictions, limitations, and open questions.")
 
-query = st.text_input("Enter research topic:", "retrieval augmented generation")
+col1, col2 = st.columns([3, 1])
+with col1:
+    query = st.text_input("Enter research topic:", "retrieval augmented generation")
+with col2:
+    max_papers = st.number_input("Max papers:", min_value=3, max_value=100, value=ARXIV_MAX_RESULTS)
 
 run = st.button("Run Analysis")
 
 if run:
-    with st.spinner("Processing papers..."):
+    with st.spinner("Running pipeline... (this may take several minutes)"):
+        results = run_pipeline(query, max_results=max_papers)
 
-        # Initialize components
-        client = ArxivClient()
-        parser = PDFParser()
-        segmenter = SectionSegmenter()
-        splitter = SentenceSplitter()
-        extractor = ClaimExtractor()
-        embedder = SpecterEmbedder()
-        clusterer = ClaimClusterer()
-        gap_generator = GapGenerator()
+    if not results:
+        st.error("Pipeline failed — no claims extracted.")
+        st.stop()
 
-        papers = client.search_and_download(query, max_results=3)
+    # --- Summary ---
+    st.write("## Summary")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Papers", results["papers_analyzed"])
+    c2.metric("Claims", results["total_claims"])
+    c3.metric("Clusters", results["clusters"])
+    c4.metric("Contradictions", results["contradictions"])
 
-        all_claims = []
+    # --- Research Gaps ---
+    st.write("## Research Gaps")
 
-        st.write("## 📄 Extracted Claims")
+    for i, gap in enumerate(results["gaps"]):
+        gap_type = gap.get("type", "open_question")
+        icon = {"contradiction": "!!", "limitation": ">>", "open_question": "??"}
+        label = f"[{icon.get(gap_type, '??')}] Gap {i + 1}: {gap_type.replace('_', ' ').title()}"
 
-        for paper in papers:
-            text = parser.extract_text(paper["pdf_path"])
-            sections = segmenter.segment(text)
+        with st.expander(label, expanded=(i < 3)):
+            st.success(gap["gap"])
 
-            for content in sections.values():
-                sentences = splitter.split(content)
+            if gap.get("source_papers"):
+                st.write("**Source Papers:**")
+                for p in gap["source_papers"]:
+                    st.write(f"- {p}")
 
-                for s in sentences[:10]:
-                    if len(s) < 40:
-                        continue
-
-                    claims = extractor.extract_from_sentence(s)
-
-                    for c in claims:
-                        st.write("•", c)
-                        all_claims.append(c)
-
-        if not all_claims:
-            st.warning("No claims extracted.")
-            st.stop()
-
-        # Embeddings
-        embeddings = embedder.encode(all_claims)
-
-        # Clustering
-        labels = clusterer.cluster(embeddings)
-        clusters = clusterer.group_clusters(all_claims, labels)
-
-        if not clusters:
-            clusters = {0: all_claims}
-
-        st.write("## 🧩 Clusters")
-
-        for cid, cl in clusters.items():
-            with st.expander(f"Cluster {cid}"):
-                for c in cl:
-                    st.write("•", c)
-
-        # Gap Generation
-        st.write("## 🚀 Research Gaps")
-
-        for cid, cl in clusters.items():
-            st.subheader(f"Cluster {cid}")
-            gap = gap_generator.generate_gap(cl)
-            st.success(gap)
+            if gap.get("supporting_claims"):
+                st.write("**Supporting Claims:**")
+                for c in gap["supporting_claims"]:
+                    st.write(f"- {c}")
