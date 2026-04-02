@@ -1,4 +1,5 @@
 import hdbscan
+from config.settings import HDBSCAN_MIN_CLUSTER_SIZE, HDBSCAN_MIN_SAMPLES, HDBSCAN_EPSILON
 
 
 class ClaimClusterer:
@@ -6,9 +7,9 @@ class ClaimClusterer:
         print("Initializing HDBSCAN...")
 
         self.clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=2,
-            min_samples=1,
-            cluster_selection_epsilon=0.8  # relaxed
+            min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE,
+            min_samples=HDBSCAN_MIN_SAMPLES,
+            cluster_selection_epsilon=HDBSCAN_EPSILON,
         )
 
     def cluster(self, embeddings):
