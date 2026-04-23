@@ -1,13 +1,20 @@
-# config/settings.py
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Ingestion ---
 ARXIV_MAX_RESULTS = 50
 SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1"
 PAPER_SAVE_DIR = "data/raw_papers"
 
-# --- Models ---
-OLLAMA_MODEL = "mistral"
-OLLAMA_URL = "http://localhost:11434/api/generate"
+# --- Claude API Models ---
+# Haiku: high-volume claim extraction (fast, cost-effective, good at extraction)
+CLAUDE_CLAIM_MODEL = "claude-haiku-4-5"
+# Opus: high-quality research gap synthesis (complex reasoning, low volume)
+CLAUDE_GAP_MODEL = "claude-opus-4-7"
+
+# --- Local Models (embeddings + NLI) ---
 SPECTER_MODEL = "allenai/specter2_base"
 NLI_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v1"
 SPACY_MODEL = "en_core_web_sm"
@@ -15,6 +22,7 @@ SPACY_MODEL = "en_core_web_sm"
 # --- Claim Extraction ---
 MIN_SENTENCE_LENGTH = 40
 MIN_CLAIM_LENGTH = 30
+CLAIM_BATCH_SIZE = 10  # sentences per Claude API call
 
 # --- Clustering ---
 HDBSCAN_MIN_CLUSTER_SIZE = 2

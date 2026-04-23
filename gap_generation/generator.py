@@ -1,21 +1,33 @@
-import requests
+import anthropic
 from config.settings import (
-    OLLAMA_MODEL, OLLAMA_URL,
-    MIN_CLAIM_LENGTH_FOR_GAP, MAX_CLAIMS_PER_GAP
+    CLAUDE_GAP_MODEL,
+    MIN_CLAIM_LENGTH_FOR_GAP,
+    MAX_CLAIMS_PER_GAP,
 )
 from gap_generation.prompts import GAP_GENERATION_PROMPT, CONTRADICTION_GAP_PROMPT
+
+# System prompt placed in a cache_control block — stable across all gap generation calls.
+GAP_SYSTEM_PROMPT = (
+    "You are a research gap analyst specializing in identifying underexplored problems "
+    "and open questions in scientific literature. You synthesize evidence from multiple "
+    "papers to articulate precise, actionable research gaps grounded in the provided claims. "
+    "Your output is a single research gap statement beginning with 'Research Gap:' followed "
+    "by a clear, specific description. Avoid generic statements like 'more research is needed'. "
+    "Reference source papers by name and explain what the claims show versus what is missing."
+)
 
 
 class GapGenerator:
     def __init__(self):
-        print(f"Using Ollama ({OLLAMA_MODEL}) for gap generation")
+        self.client = anthropic.Anthropic()
+        print(f"Using Claude ({CLAUDE_GAP_MODEL}) with adaptive thinking for gap generation")
 
-    def generate_gap(self, cluster_claims, contradictions=None):
+    def generate_gap(self, cluster_claims: list, contradictions: list = None) -> dict:
         if contradictions:
             return self._generate_contradiction_gap(contradictions)
         return self._generate_cluster_gap(cluster_claims)
 
-    def _generate_cluster_gap(self, cluster_claims):
+    def _generate_cluster_gap(self, cluster_claims: list) -> dict:
         clean = [c for c in cluster_claims if len(c["text"]) > MIN_CLAIM_LENGTH_FOR_GAP]
         clean = clean[:MAX_CLAIMS_PER_GAP]
 
@@ -31,10 +43,8 @@ class GapGenerator:
             f'- "{c["text"]}" (from: {c["paper_title"]}, section: {c["section"]})'
             for c in clean
         )
-
         prompt = GAP_GENERATION_PROMPT.format(claims_text=claims_text)
-        gap_text = self._call_ollama(prompt)
-
+        gap_text = self._call_claude(prompt)
         source_papers = list({c["paper_title"] for c in clean})
 
         return {
@@ -44,7 +54,7 @@ class GapGenerator:
             "type": "open_question",
         }
 
-    def _generate_contradiction_gap(self, contradictions):
+    def _generate_contradiction_gap(self, contradictions: list) -> dict:
         lines = []
         all_claims = []
         for c1, c2, conf in contradictions:
@@ -56,8 +66,7 @@ class GapGenerator:
             all_claims.extend([c1, c2])
 
         prompt = CONTRADICTION_GAP_PROMPT.format(contradictions_text="\n".join(lines))
-        gap_text = self._call_ollama(prompt)
-
+        gap_text = self._call_claude(prompt)
         source_papers = list({c["paper_title"] for c in all_claims})
 
         return {
@@ -67,21 +76,30 @@ class GapGenerator:
             "type": "contradiction",
         }
 
-    def _call_ollama(self, prompt):
-        response = requests.post(OLLAMA_URL, json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 300}
-        }, proxies={"http": None, "https": None})
+    def _call_claude(self, user_prompt: str) -> str:
+        """Call Claude Opus 4.7 with adaptive thinking and cached system prompt."""
+        try:
+            response = self.client.messages.create(
+                model=CLAUDE_GAP_MODEL,
+                max_tokens=1024,
+                thinking={"type": "adaptive"},
+                system=[{
+                    "type": "text",
+                    "text": GAP_SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except anthropic.APIError as e:
+            print(f"Claude API error during gap generation: {e}")
+            return "Research Gap: Unable to synthesize gap due to API error."
 
-        if response.status_code != 200:
-            return "Error: Could not generate gap."
+        # Extract the text block — response may also contain thinking blocks
+        text = next(
+            (b.text for b in response.content if b.type == "text"),
+            "",
+        ).strip()
 
-        text = response.json().get("response", "").strip()
-
-        # Clean up: remove "Research Gap:" prefix if present
         if text.lower().startswith("research gap:"):
-            text = text[len("research gap:"):].strip()
-
+            return text
         return f"Research Gap: {text}" if text else "Research Gap: Unable to synthesize gap from provided claims."

@@ -44,7 +44,7 @@ def run_pipeline(query, max_results=None):
         print(f"Discovered {len(extra_papers)} additional papers via citation graph")
         papers.extend(extra_papers)
 
-    # --- 2. Claim Extraction ---
+    # --- 2. Claim Extraction (batched via Claude Haiku) ---
     print("\nExtracting claims...")
     all_claims = []
 
@@ -53,19 +53,16 @@ def run_pipeline(query, max_results=None):
         text = parser.extract_text(paper["pdf_path"])
         sections = segmenter.segment(text)
 
+        # Collect all valid sentences for this paper, then batch-extract
+        sentence_items = []
         for section_name, content in sections.items():
-            sentences = splitter.split(content)
+            for s in splitter.split(content):
+                if len(s) >= MIN_SENTENCE_LENGTH:
+                    sentence_items.append((s, paper["title"], section_name))
 
-            for s in sentences:
-                if len(s) < MIN_SENTENCE_LENGTH:
-                    continue
-
-                claims = extractor.extract_from_sentence(
-                    s,
-                    paper_title=paper["title"],
-                    section=section_name,
-                )
-                all_claims.extend(claims)
+        paper_claims = extractor.extract_all(sentence_items)
+        all_claims.extend(paper_claims)
+        print(f"    → {len(paper_claims)} claims from {len(sentence_items)} sentences")
 
     print(f"\nTotal claims extracted: {len(all_claims)}")
 
@@ -74,11 +71,11 @@ def run_pipeline(query, max_results=None):
         return None
 
     # --- 3. Embedding ---
-    print("\nEmbedding claims...")
+    print("\nEmbedding claims with SPECTER2...")
     embeddings = embedder.encode(all_claims)
 
     # --- 4. Clustering ---
-    print("Clustering...")
+    print("Clustering with HDBSCAN...")
     labels = clusterer.cluster(embeddings)
     clusters = clusterer.group_clusters(all_claims, labels)
 
@@ -121,7 +118,7 @@ def run_pipeline(query, max_results=None):
     limitation_claims, limitation_clusters = retriever.retrieve(all_claims, embeddings)
     print(f"Found {len(limitation_claims)} limitation claims in {len(limitation_clusters)} clusters")
 
-    # --- 7. Gap Generation ---
+    # --- 7. Gap Generation (Claude Opus 4.7) ---
     print("\n=== RESEARCH GAPS ===\n")
     results = {
         "query": query,
@@ -163,7 +160,7 @@ def run_pipeline(query, max_results=None):
 
 
 def main():
-    results = run_pipeline("retrieval augmented generation")
+    results = run_pipeline("retrieval augmented generation", max_results=5)
     if results:
         with open("data/results.json", "w") as f:
             json.dump(results, f, indent=2)
@@ -172,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

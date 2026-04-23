@@ -11,3 +11,6 @@ streamlit
 bert-score
 datasets
 peft
+anthropic
+python-dotenv
+plotly
