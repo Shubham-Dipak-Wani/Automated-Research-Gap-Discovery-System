@@ -1,16 +1,32 @@
+# Core HTTP + utilities
 requests
 tqdm
+python-dotenv
+
+# PDF parsing
 pymupdf
+
+# NLP + sentence splitting
 spacy
+# After installing, run: python -m spacy download en_core_web_sm
+
+# Transformers + local models (NLI + SPECTER2)
 transformers
 torch
 sentence-transformers
+
+# Clustering
 scikit-learn
 hdbscan
+
+# Claude API (claim extraction + gap generation)
+anthropic
+
+# Web UI
 streamlit
+plotly
+
+# Evaluation only (not needed to run the main pipeline)
 bert-score
 datasets
 peft
-anthropic
-python-dotenv
-plotly
