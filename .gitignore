@@ -1,0 +1,20 @@
+# Environments and secrets
+venv/
+.venv/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Downloaded papers and run outputs (regenerated on every run)
+data/raw_papers/*
+!data/raw_papers/.gitkeep
+data/*.json
+*.part
+
+# Local tooling
+logs/
+CLAUDE.md
+.DS_Store

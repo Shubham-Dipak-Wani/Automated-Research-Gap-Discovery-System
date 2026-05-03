@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Research Gap Discovery: find what the literature hasn't studied yet">
+  <rect width="1280" height="320" rx="24" fill="#F8FAFC"/>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="23.5" fill="none" stroke="#E2E8F0"/>
+
+  <!-- papers -->
+  <g stroke="#CBD5E1" stroke-width="1.5" fill="#FFFFFF">
+    <rect x="690" y="70" width="58" height="76" rx="6"/><rect x="702" y="96" width="58" height="76" rx="6"/><rect x="714" y="122" width="58" height="76" rx="6"/>
+  </g>
+  <g stroke="#E2E8F0" stroke-width="3" stroke-linecap="round">
+    <line x1="724" y1="138" x2="760" y2="138"/><line x1="724" y1="150" x2="752" y2="150"/><line x1="724" y1="162" x2="760" y2="162"/><line x1="724" y1="174" x2="746" y2="174"/>
+  </g>
+  <path d="M790 160 H 830" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="#94A3B8"/></marker></defs>
+
+  <!-- claim clusters -->
+  <g fill="#2563EB" opacity=".85"><circle cx="870" cy="110" r="7"/><circle cx="888" cy="96" r="6"/><circle cx="896" cy="118" r="7"/><circle cx="878" cy="130" r="5"/></g>
+  <g fill="#7C3AED" opacity=".85"><circle cx="900" cy="200" r="7"/><circle cx="922" cy="190" r="6"/><circle cx="915" cy="215" r="5"/></g>
+  <g fill="#D97706" opacity=".85"><circle cx="960" cy="140" r="6"/><circle cx="978" cy="156" r="7"/><circle cx="958" cy="166" r="5"/></g>
+  <line x1="896" y1="118" x2="915" y2="200" stroke="#DC2626" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="850" y="250" font-family="Consolas, Menlo, monospace" font-size="12" fill="#DC2626">contradiction</text>
+
+  <path d="M1000 160 H 1040" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+  <!-- the gap -->
+  <rect x="1052" y="112" width="172" height="96" rx="14" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="1138" y="150" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1D4ED8" text-anchor="middle">Research Gap</text>
+  <text x="1138" y="174" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" fill="#475569" text-anchor="middle">grounded in claims</text>
+  <text x="1138" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" fill="#475569" text-anchor="middle">from named papers</text>
+
+  <!-- wordmark -->
+  <text x="72" y="128" fill="#0F172A" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="54" font-weight="800">Research Gap</text>
+  <text x="72" y="186" fill="#2563EB" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="54" font-weight="800">Discovery</text>
+  <text x="74" y="226" fill="#475569" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="21">Give it a topic. It reads the papers and finds what hasn't been studied.</text>
+  <g font-family="Consolas, Menlo, monospace" font-size="14">
+    <rect x="74" y="248" width="96" height="30" rx="15" fill="#E2E8F0"/><text x="122" y="268" fill="#334155" text-anchor="middle">SPECTER2</text>
+    <rect x="180" y="248" width="90" height="30" rx="15" fill="#E2E8F0"/><text x="225" y="268" fill="#334155" text-anchor="middle">HDBSCAN</text>
+    <rect x="280" y="248" width="120" height="30" rx="15" fill="#E2E8F0"/><text x="340" y="268" fill="#334155" text-anchor="middle">DeBERTa NLI</text>
+    <rect x="410" y="248" width="80" height="30" rx="15" fill="#E2E8F0"/><text x="450" y="268" fill="#334155" text-anchor="middle">Claude</text>
+  </g>
+</svg>

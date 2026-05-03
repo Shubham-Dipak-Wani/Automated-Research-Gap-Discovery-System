@@ -1,0 +1,7 @@
+# Lightweight dependencies for the unit tests. Heavy models (torch, spaCy,
+# SPECTER2, HDBSCAN) are imported lazily, so the tests don't need them.
+numpy
+scikit-learn
+requests
+python-dotenv
+pytest>=8.0
